@@ -1,37 +1,39 @@
-# VolumeBooster (Kettu / Revenge / Vendetta)
+# VolumeBooster (ready for Kettu / Revenge)
 
-Experimental mobile port of Vencord's VolumeBooster.
+Single-file hostable version. No TypeScript build step needed.
 
-Allows attempting to set user/stream volume above the normal maximum.
+## Install (GitHub Pages)
 
-## Important
+1. Put **both** files in the root of your repo (or a folder):
+   - `manifest.json`
+   - `index.js`
 
-This is **not** a perfect 1:1 port.  
-Discord mobile (React Native) uses a different audio pipeline than the desktop client.  
-The plugin tries the most common module names (`MediaEngineStore`, `setLocalVolume`, etc.).
+2. Enable GitHub Pages:
+   - Repo → Settings → Pages
+   - Source: Deploy from a branch
+   - Branch: `main` / folder: `/ (root)`
+   - Save, wait ~1 minute
 
-It may need adjustments for your specific Discord version.
+3. In Discord (Kettu/Revenge):
+   - Settings → Plugins → +
+   - Paste:
+     ```
+     https://YOUR_USERNAME.github.io/YOUR_REPO/
+     ```
+     (trailing slash recommended)
 
-## Install
+4. Enable the plugin, set multiplier in settings, reload Discord.
 
-1. Host the plugin folder (or zip the contents) on a web server / GitHub Pages / raw link.
-2. In Discord (with Kettu/Revenge):  
-   Settings → Plugins → + → paste the plugin URL (the folder that contains `manifest.json`).
-3. Enable the plugin and open its settings to set the multiplier.
-4. Reload Discord or toggle the plugin after changing the multiplier.
+## Example
 
-## Files
+If your repo is `https://github.com/AlexanderAlexis01/VolumeBooster`  
+install URL is:
 
-- `manifest.json` – plugin metadata
-- `src/index.ts` – main logic + patches
-- `src/ui/Settings.tsx` – settings UI
+```
+https://alexanderalexis01.github.io/VolumeBooster/
+```
 
-## Troubleshooting
+## Notes
 
-- Check the client logs for lines starting with `VolumeBooster:`.
-- If the volume slider still hard-stops at 100 or 200, the maxValue patch did not hit the right module. You will need to reverse-engineer the current volume slider component on your Discord version.
-- Native audio gain may still clamp the value even if the JS side accepts higher numbers.
-
-## Credits
-
-Original idea & desktop implementation: Vencord (Nuckyz, sadan).
+- Experimental. Mobile Discord may still clamp volume natively.
+- Check client logs for lines starting with `VolumeBooster:`.
