@@ -9,6 +9,7 @@ import { before, instead } from "@vendetta/patcher";
 import { storage } from "@vendetta/plugin";
 import { logger } from "@vendetta";
 import Settings from "./Settings";
+import { push } from "./logs";
 
 const TAG = "VolumeBooster:";
 const BASE_MAX = 200;
@@ -24,7 +25,15 @@ const patches: (() => void)[] = [];
 const seen = new Set<string>();
 let lastSlide = 0;
 
-const log = (...a: any[]) => storage.debug && logger.log(TAG, ...a);
+const log = (...a: any[]) => {
+    if (!storage.debug) return;
+    logger.log(TAG, ...a);
+    push(...a);
+};
+const warn = (...a: any[]) => {
+    logger.warn(TAG, ...a);
+    push("WARN", ...a);
+};
 
 function getMultiplier(): number {
     const m = Number(storage.multiplier);
@@ -80,13 +89,13 @@ export default {
             patches.push(instead("setLocalVolume", actions, (args: any[], orig: any) => {
                 log("setLocalVolume", ...args);
                 if (isStrayZero(args[1])) {
-                    logger.warn(TAG, "blocked stray setLocalVolume(0)", ...args, new Error().stack);
+                    warn("blocked stray setLocalVolume(0)", ...args, String(new Error().stack).split("\n").slice(0, 8).join(" | "));
                     return;
                 }
                 return orig(...args);
             }));
         } else {
-            logger.warn(TAG, "setLocalVolume not found");
+            warn("setLocalVolume not found");
         }
 
         patches.push(instead("dispatch", FluxDispatcher, (args: any[], orig: any) => {
@@ -95,7 +104,7 @@ export default {
             if (typeof type === "string" && /AUDIO|VOLUME|USER_SETTINGS_PROTO/.test(type)) {
                 try { log("flux", type, JSON.stringify(ev).slice(0, 300)); } catch {}
                 if (type === "AUDIO_SET_LOCAL_VOLUME" && isStrayZero(ev.volume)) {
-                    logger.warn(TAG, "blocked stray AUDIO_SET_LOCAL_VOLUME 0", JSON.stringify(ev));
+                    warn("blocked stray AUDIO_SET_LOCAL_VOLUME 0", JSON.stringify(ev));
                     return;
                 }
             }
