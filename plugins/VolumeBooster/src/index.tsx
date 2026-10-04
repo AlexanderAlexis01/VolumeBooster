@@ -3,9 +3,9 @@
  * Port of Vencord's VolumeBooster (Nuckyz, sadan) - GPLv3
  */
 
-import { findByProps } from "@vendetta/metro";
+import { findByProps, findByStoreName } from "@vendetta/metro";
 import { FluxDispatcher, React } from "@vendetta/metro/common";
-import { before, instead } from "@vendetta/patcher";
+import { before } from "@vendetta/patcher";
 import { storage } from "@vendetta/plugin";
 import { logger } from "@vendetta";
 import Settings from "./Settings";
@@ -15,7 +15,7 @@ const TAG = "VolumeBooster:";
 const BASE_MAX = 200;
 const MAX_KEYS = ["maximumValue", "maxValue"];
 const CALLBACKS = ["onValueChange", "onSlidingComplete", "onChange"];
-const SLIDE_WINDOW_MS = 3000;
+const WINDOW_MS = 3000;
 
 storage.multiplier ??= 2;
 storage.debug ??= false;
@@ -23,7 +23,7 @@ storage.guardZero ??= true;
 
 const patches: (() => void)[] = [];
 const seen = new Set<string>();
-let lastSlide = 0;
+const lastWrite = new Map<string, number>();
 
 const log = (...a: any[]) => {
     if (!storage.debug) return;
@@ -53,62 +53,82 @@ function patchProps(props: any) {
             log("candidate slider", key, Object.keys(props));
         }
 
-        // remember when the user actually touches the slider
-        for (const cb of CALLBACKS) {
-            const fn = props[cb];
-            if (typeof fn !== "function" || fn.__vb) continue;
-            const wrapped: any = (...a: any[]) => {
-                lastSlide = Date.now();
-                return fn(...a);
-            };
-            wrapped.__vb = true;
-            props[cb] = wrapped;
-        }
-
         props[key] = BASE_MAX * getMultiplier();
     }
 }
 
-// A volume write of exactly 0 that is not preceded by the user touching the slider
-function isStrayZero(volume: any) {
-    return storage.guardZero && volume === 0 && Date.now() - lastSlide > SLIDE_WINDOW_MS;
+function currentVolume(userId: any, context: any): number | undefined {
+    try {
+        const store = findByStoreName("MediaEngineStore");
+        const v = store?.getLocalVolume?.(userId, context);
+        return typeof v === "number" ? v : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+// If something writes 0 on its own (no recent write for this user) while the
+// stored volume is boosted, return the stored volume so it can be restored.
+function strayFix(userId: any, volume: any, context: any): number | undefined {
+    if (!storage.guardZero || volume !== 0) return;
+    const last = lastWrite.get(String(userId)) ?? 0;
+    if (Date.now() - last <= WINDOW_MS) return;
+    const cur = currentVolume(userId, context);
+    if (cur !== undefined && cur > BASE_MAX) return cur;
 }
 
 export default {
     onLoad() {
-        patches.push(before("createElement", React, args => patchProps(args[1])));
+        patches.push(before("createElement", React, args => { patchProps(args[1]); }));
 
         const jsxRuntime = findByProps("jsx", "jsxs");
         if (jsxRuntime) {
-            patches.push(before("jsx", jsxRuntime, args => patchProps(args[1])));
-            patches.push(before("jsxs", jsxRuntime, args => patchProps(args[1])));
+            patches.push(before("jsx", jsxRuntime, args => { patchProps(args[1]); }));
+            patches.push(before("jsxs", jsxRuntime, args => { patchProps(args[1]); }));
         }
 
         const actions = findByProps("setLocalVolume");
         if (actions) {
-            patches.push(instead("setLocalVolume", actions, (args: any[], orig: any) => {
-                log("setLocalVolume", ...args);
-                if (isStrayZero(args[1])) {
-                    warn("blocked stray setLocalVolume(0)", ...args, String(new Error().stack).split("\n").slice(0, 8).join(" | "));
-                    return;
+            patches.push(before("setLocalVolume", actions, (args: any[]) => {
+                try {
+                    const [userId, volume, context] = args;
+                    log("setLocalVolume", ...args);
+                    const fix = strayFix(userId, volume, context);
+                    if (fix !== undefined) {
+                        warn("restored stray setLocalVolume(0) ->", fix, String(new Error().stack).split("\n").slice(0, 8).join(" | "));
+                        args[1] = fix;
+                    } else {
+                        lastWrite.set(String(userId), Date.now());
+                    }
+                } catch (e) {
+                    warn("setLocalVolume hook error", String(e));
                 }
-                return orig(...args);
+                return args;
             }));
         } else {
             warn("setLocalVolume not found");
         }
 
-        patches.push(instead("dispatch", FluxDispatcher, (args: any[], orig: any) => {
-            const ev = args[0];
-            const type = ev?.type;
-            if (typeof type === "string" && /AUDIO|VOLUME|USER_SETTINGS_PROTO/.test(type)) {
-                try { log("flux", type, JSON.stringify(ev).slice(0, 300)); } catch {}
-                if (type === "AUDIO_SET_LOCAL_VOLUME" && isStrayZero(ev.volume)) {
-                    warn("blocked stray AUDIO_SET_LOCAL_VOLUME 0", JSON.stringify(ev));
-                    return;
+        patches.push(before("dispatch", FluxDispatcher, (args: any[]) => {
+            try {
+                const ev = args[0];
+                const type = ev?.type;
+                if (typeof type === "string" && /AUDIO|VOLUME|USER_SETTINGS_PROTO/.test(type)) {
+                    log("flux", type, JSON.stringify(ev).slice(0, 300));
+                    if (type === "AUDIO_SET_LOCAL_VOLUME") {
+                        const fix = strayFix(ev.userId, ev.volume, ev.context);
+                        if (fix !== undefined) {
+                            warn("restored stray AUDIO_SET_LOCAL_VOLUME 0 ->", fix, JSON.stringify(ev));
+                            ev.volume = fix;
+                        } else if (ev.volume > 0) {
+                            lastWrite.set(String(ev.userId), Date.now());
+                        }
+                    }
                 }
+            } catch (e) {
+                warn("dispatch hook error", String(e));
             }
-            return orig(...args);
+            return args;
         }));
     },
 
@@ -116,6 +136,7 @@ export default {
         for (const unpatch of patches) unpatch();
         patches.length = 0;
         seen.clear();
+        lastWrite.clear();
     },
 
     settings: Settings

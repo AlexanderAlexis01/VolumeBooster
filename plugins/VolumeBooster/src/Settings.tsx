@@ -30,8 +30,8 @@ export default function Settings() {
                 Slider max becomes 200% x multiplier. Reopen the volume sheet after changing it.
             </FormText>
             <FormSwitchRow
-                label="Block stray volume resets to 0"
-                subLabel="Ignores 0% writes that don't come from you moving the slider"
+                label="Restore volume if reset to 0"
+                subLabel="Restores a boosted volume if something resets it to 0 by itself"
                 value={storage.guardZero}
                 onValueChange={(v: boolean) => (storage.guardZero = v)}
             />
