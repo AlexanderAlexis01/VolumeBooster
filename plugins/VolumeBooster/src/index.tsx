@@ -16,14 +16,22 @@ const BASE_MAX = 200;
 const MAX_KEYS = ["maximumValue", "maxValue"];
 const CALLBACKS = ["onValueChange", "onSlidingComplete", "onChange"];
 const WINDOW_MS = 3000;
+const MAX_FIXES = 20;
 
 storage.multiplier ??= 2;
 storage.debug ??= false;
 storage.guardZero ??= true;
 
+type Boost = { volume: number; context: any; fixes: number; lastFix: number };
+
 const patches: (() => void)[] = [];
 const seen = new Set<string>();
 const lastWrite = new Map<string, number>();
+const boosted = new Map<string, Boost>();
+let actions: any;
+let timer: any;
+let internal = false;
+let lastVolLog = 0;
 
 const log = (...a: any[]) => {
     if (!storage.debug) return;
@@ -67,14 +75,48 @@ function currentVolume(userId: any, context: any): number | undefined {
     }
 }
 
-// If something writes 0 on its own (no recent write for this user) while the
-// stored volume is boosted, return the stored volume so it can be restored.
+// A 0 written with no recent write for that user while the stored volume is boosted
 function strayFix(userId: any, volume: any, context: any): number | undefined {
     if (!storage.guardZero || volume !== 0) return;
     const last = lastWrite.get(String(userId)) ?? 0;
     if (Date.now() - last <= WINDOW_MS) return;
     const cur = currentVolume(userId, context);
     if (cur !== undefined && cur > BASE_MAX) return cur;
+}
+
+function track(userId: any, volume: any, context: any) {
+    const id = String(userId);
+    if (typeof volume === "number" && volume > BASE_MAX) {
+        boosted.set(id, { volume, context, fixes: 0, lastFix: 0 });
+    } else {
+        boosted.delete(id);
+    }
+}
+
+// Compare the store with the volume the user set; put it back if something changed it
+function check(reason: string, quiet = false) {
+    if (!storage.guardZero || !actions) return;
+    const now = Date.now();
+    boosted.forEach((b, id) => {
+        const cur = currentVolume(id, b.context);
+        if (cur === undefined) return;
+        if (Math.abs(cur - b.volume) <= 0.5) {
+            if (!quiet) log("check ok", reason, id, cur);
+            return;
+        }
+        if (b.fixes >= MAX_FIXES || now - b.lastFix < 1000) return;
+        warn("store volume drifted", reason, id, "store=", cur, "want=", b.volume, "-> re-asserting");
+        b.fixes++;
+        b.lastFix = now;
+        internal = true;
+        try {
+            actions.setLocalVolume(id, b.volume, b.context);
+        } catch (e) {
+            warn("re-assert failed", String(e));
+        } finally {
+            internal = false;
+        }
+    });
 }
 
 export default {
@@ -87,18 +129,24 @@ export default {
             patches.push(before("jsxs", jsxRuntime, args => { patchProps(args[1]); }));
         }
 
-        const actions = findByProps("setLocalVolume");
+        actions = findByProps("setLocalVolume");
         if (actions) {
             patches.push(before("setLocalVolume", actions, (args: any[]) => {
+                if (internal) return args;
                 try {
                     const [userId, volume, context] = args;
-                    log("setLocalVolume", ...args);
+                    const now = Date.now();
+                    if (now - lastVolLog > 500) {
+                        lastVolLog = now;
+                        log("setLocalVolume", ...args);
+                    }
                     const fix = strayFix(userId, volume, context);
                     if (fix !== undefined) {
                         warn("restored stray setLocalVolume(0) ->", fix, String(new Error().stack).split("\n").slice(0, 8).join(" | "));
                         args[1] = fix;
                     } else {
-                        lastWrite.set(String(userId), Date.now());
+                        lastWrite.set(String(userId), now);
+                        track(userId, volume, context);
                     }
                 } catch (e) {
                     warn("setLocalVolume hook error", String(e));
@@ -113,9 +161,10 @@ export default {
             try {
                 const ev = args[0];
                 const type = ev?.type;
-                if (typeof type === "string" && /AUDIO|VOLUME|USER_SETTINGS_PROTO/.test(type)) {
-                    log("flux", type, JSON.stringify(ev).slice(0, 300));
-                    if (type === "AUDIO_SET_LOCAL_VOLUME") {
+                if (typeof type !== "string") return args;
+
+                if (type === "AUDIO_SET_LOCAL_VOLUME") {
+                    if (!internal) {
                         const fix = strayFix(ev.userId, ev.volume, ev.context);
                         if (fix !== undefined) {
                             warn("restored stray AUDIO_SET_LOCAL_VOLUME 0 ->", fix, JSON.stringify(ev));
@@ -124,19 +173,32 @@ export default {
                             lastWrite.set(String(ev.userId), Date.now());
                         }
                     }
+                } else if (type.startsWith("USER_SETTINGS_PROTO_UPDATE")) {
+                    const users =
+                        ev?.settings?.proto?.audioContextSettings?.user ??
+                        ev?.settings?.changes?.protoToSave?.audioContextSettings?.user;
+                    if (users) boosted.forEach((_, id) => log("proto", type, id, "volume=", users[id]?.volume));
+                    if (boosted.size) setTimeout(() => check(type), 150);
+                } else if (/AUDIO|VOLUME/.test(type)) {
+                    log("flux", type, JSON.stringify(ev).slice(0, 200));
+                    if (boosted.size) setTimeout(() => check(type), 150);
                 }
             } catch (e) {
                 warn("dispatch hook error", String(e));
             }
             return args;
         }));
+
+        timer = setInterval(() => check("interval", true), 1000);
     },
 
     onUnload() {
+        clearInterval(timer);
         for (const unpatch of patches) unpatch();
         patches.length = 0;
         seen.clear();
         lastWrite.clear();
+        boosted.clear();
     },
 
     settings: Settings
