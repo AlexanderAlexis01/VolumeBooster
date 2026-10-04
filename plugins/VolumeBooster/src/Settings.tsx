@@ -24,8 +24,14 @@ export default function Settings() {
                 Slider max becomes 200% x multiplier. Reopen the volume sheet after changing it.
             </FormText>
             <FormSwitchRow
+                label="Block stray volume resets to 0"
+                subLabel="Ignores 0% writes that don't come from you moving the slider"
+                value={storage.guardZero}
+                onValueChange={(v: boolean) => (storage.guardZero = v)}
+            />
+            <FormSwitchRow
                 label="Debug logging"
-                subLabel="Logs candidate sliders and setLocalVolume calls"
+                subLabel="Logs sliders, setLocalVolume and audio Flux events"
                 value={storage.debug}
                 onValueChange={(v: boolean) => (storage.debug = v)}
             />
