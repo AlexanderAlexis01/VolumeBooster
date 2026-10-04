@@ -1,0 +1,12 @@
+{
+  "name": "VolumeBooster",
+  "description": "Lets the user/stream volume slider go above the default maximum. Port of Vencord's VolumeBooster.",
+  "authors": [
+    { "name": "Nuckyz" },
+    { "name": "sadan" }
+  ],
+  "main": "src/index.tsx",
+  "vendetta": {
+    "icon": "ic_audio"
+  }
+}

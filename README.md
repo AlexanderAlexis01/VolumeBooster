@@ -1,39 +1,7 @@
-# VolumeBooster (ready for Kettu / Revenge)
+# Vendetta Plugins Template
+This repo contains a template for creating [Vendetta](https://github.com/vendetta-mod/Vendetta) plugins.
 
-Single-file hostable version. No TypeScript build step needed.
+# How to install?
+Paste a plugin URL into the Plugins page of Vendetta, following a basic format of:
 
-## Install (GitHub Pages)
-
-1. Put **both** files in the root of your repo (or a folder):
-   - `manifest.json`
-   - `index.js`
-
-2. Enable GitHub Pages:
-   - Repo → Settings → Pages
-   - Source: Deploy from a branch
-   - Branch: `main` / folder: `/ (root)`
-   - Save, wait ~1 minute
-
-3. In Discord (Kettu/Revenge):
-   - Settings → Plugins → +
-   - Paste:
-     ```
-     https://YOUR_USERNAME.github.io/YOUR_REPO/
-     ```
-     (trailing slash recommended)
-
-4. Enable the plugin, set multiplier in settings, reload Discord.
-
-## Example
-
-If your repo is `https://github.com/AlexanderAlexis01/VolumeBooster`  
-install URL is:
-
-```
-https://alexanderalexis01.github.io/VolumeBooster/
-```
-
-## Notes
-
-- Experimental. Mobile Discord may still clamp volume natively.
-- Check client logs for lines starting with `VolumeBooster:`.
+https://`YOUR_GITHUB_USERNAME`.github.io/`REPO_NAME`/`PLUGIN_NAME`
