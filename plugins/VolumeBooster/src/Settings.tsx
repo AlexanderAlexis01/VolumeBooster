@@ -1,16 +1,23 @@
 import { React } from "@vendetta/metro/common";
-import { findByProps } from "@vendetta/metro";
+import { findByProps, findByStoreName } from "@vendetta/metro";
 import { useProxy } from "@vendetta/storage";
 import { storage } from "@vendetta/plugin";
 import { Forms } from "@vendetta/ui/components";
 import { showToast } from "@vendetta/ui/toasts";
 import { lines, clear } from "./logs";
+import { boosted, clearAll } from "./state";
 
 const { FormSection, FormInput, FormSwitchRow, FormText, FormRow } = Forms;
 
 export default function Settings() {
     useProxy(storage);
     const [, force] = React.useReducer((x: number) => x + 1, 0);
+
+    const users = findByStoreName("UserStore");
+    const nameOf = (id: string) => {
+        try { const u = users?.getUser?.(id); return u?.globalName || u?.username || id; } catch { return id; }
+    };
+    const list = Array.from(boosted.values());
 
     const text = lines.length ? lines.slice(-80).join("\n") : "(no logs yet)";
 
@@ -30,17 +37,28 @@ export default function Settings() {
                 Slider max becomes 200% x multiplier. Reopen the volume sheet after changing it.
             </FormText>
             <FormSwitchRow
-                label="Restore volume if reset to 0"
-                subLabel="Restores a boosted volume if something resets it to 0 by itself"
+                label="Keep boosts"
+                subLabel="Restores boosted volumes if Discord resets them"
                 value={storage.guardZero}
                 onValueChange={(v: boolean) => (storage.guardZero = v)}
             />
             <FormSwitchRow
                 label="Debug logging"
-                subLabel="Records sliders, setLocalVolume and audio Flux events below"
+                subLabel="Records volume, sync and audio events below"
                 value={storage.debug}
                 onValueChange={(v: boolean) => (storage.debug = v)}
             />
+            <FormText style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+                {list.length ? "Boosted right now:" : "No boosted volumes right now."}
+            </FormText>
+            {list.map(b => (
+                <FormRow
+                    key={b.context + b.id}
+                    label={nameOf(b.id)}
+                    subLabel={`${Math.round(b.volume)}% (${b.context})`}
+                />
+            ))}
+            <FormRow label="Forget all boosts" onPress={() => { clearAll(); force(); }} />
             <FormRow label="Refresh logs" onPress={() => force()} />
             <FormRow
                 label="Copy logs"
