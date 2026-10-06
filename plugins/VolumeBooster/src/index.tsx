@@ -8,14 +8,15 @@
  *    dragging and applies the server's copy back. To stop that from wiping boosts:
  *      1. volumes above 200 are clamped to 200 in what gets uploaded
  *      2. in server updates coming back, boosted users get their boosted volume
- *      3. boosts are persisted and a watchdog re-asserts them if the store drifts
+ *      3. boosts are persisted; after sync/audio events the store is compared with
+ *         the boost and corrected once if it drifted (event-driven, no polling)
  *
  * Performance rules:
  *  - the render hooks (every element creation) only exist while in a voice channel
  *  - one Flux hook, exact-type Set lookup, everything else returns immediately
  *  - modules/stores are looked up once and cached
- *  - the watchdog only runs while in voice, every 3s, and only if something is boosted
- *  - every patch/timer is removed on unload
+ *  - no timers or polling: checks only run right after relevant events
+ *  - every patch is removed on unload
  */
 
 import { findByProps, findByStoreName } from "@vendetta/metro";
@@ -32,7 +33,6 @@ const MAX_KEYS = ["maximumValue", "maxValue"];
 const CALLBACKS = ["onValueChange", "onSlidingComplete", "onChange"];
 const WINDOW_MS = 3000;
 const MAX_FIXES = 30;
-const WATCHDOG_MS = 3000;
 const FIELDS: [string, string][] = [["user", "default"], ["stream", "stream"]];
 const WATCHED = new Set([
     "AUDIO_SET_LOCAL_VOLUME",
@@ -57,7 +57,6 @@ let actions: any;
 let mediaStore: any;
 let channelStore: any;
 let jsxRuntime: any;
-let timer: any;
 let internal = false;
 let lastVolLog = 0;
 
@@ -128,14 +127,7 @@ function setUiHooks(on: boolean) {
 function syncVoiceState() {
     const on = inVoice();
     setUiHooks(on);
-    if (on && !timer) {
-        timer = setInterval(() => {
-            if (boosted.size) check("interval", true);
-        }, WATCHDOG_MS);
-    } else if (!on && timer) {
-        clearInterval(timer);
-        timer = undefined;
-    }
+    if (on && boosted.size) setTimeout(() => check("voice"), 500);
 }
 
 // ---- volume / sync handling --------------------------------------------------
@@ -200,7 +192,7 @@ function onUserWrite(ev: any) {
     persist();
 }
 
-// Watchdog: if the store drifted away from a boosted volume, put it back
+// Event-driven check: if the store drifted away from a boosted volume, put it back
 function check(reason: string, quiet = false) {
     if (!actions || !storage.guardZero) return;
     const now = Date.now();
@@ -291,8 +283,6 @@ export default {
     },
 
     onUnload() {
-        clearInterval(timer);
-        timer = undefined;
         uiPatches.forEach(u => u());
         uiPatches = [];
         patches.forEach(u => u());
